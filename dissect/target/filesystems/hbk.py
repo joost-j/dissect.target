@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import pathlib
 import stat
 from typing import TYPE_CHECKING, BinaryIO
 
@@ -18,9 +20,12 @@ from dissect.target.filesystem import (
     FilesystemEntry,
 )
 from dissect.target.helpers import fsutil, keychain
+from dissect.target.helpers.keychain import KeyType
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+log = logging.getLogger(__name__)
 
 
 class HbkFilesystem(Filesystem):
@@ -28,15 +33,34 @@ class HbkFilesystem(Filesystem):
 
     __type__ = "hbk"
 
-    def __init__(self, fh: BinaryIO, key: keychain.Key | None = None, *args, **kwargs):
+    def __init__(self, fh: BinaryIO, *args, **kwargs):
         super().__init__(fh, *args, **kwargs)
-        self.hbk = hbk.HBK(fh, key=key)
+        keys = keychain.get_keys_for_provider("synology") + keychain.get_keys_without_provider()
+        if not keys:
+            self.hbk = hbk.HBK(fh)
+        else:
+            for key in keys:
+                passphrase, private_key = None, None
+
+                if key.key_type == KeyType.PASSPHRASE:
+                    passphrase = key.value
+                elif key.key_type == KeyType.FILE:
+                    private_key = pathlib.Path(key.value).read_bytes()
+                elif key.key_type == KeyType.RAW:
+                    private_key = key.value
+                else:
+                    continue
+
+                try:
+                    self.hbk = hbk.HBK(fh, passphrase, private_key)
+                except hbk.InvalidKeyError as e:
+                    log.warning(e)
 
     @staticmethod
     def _detect(fh: BinaryIO) -> bool:
         try:
             hbk.HBK(fh)
-        except (EOFError):
+        except EOFError:
             return False
         else:
             return True
