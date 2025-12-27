@@ -45,7 +45,14 @@ class HbkFilesystem(Filesystem):
                 if key.key_type == KeyType.PASSPHRASE:
                     passphrase = key.value
                 elif key.key_type == KeyType.FILE:
-                    private_key = pathlib.Path(key.value).read_bytes()
+                    try:
+                        private_key = pathlib.Path(key.value).read_bytes()
+                    except FileNotFoundError as e:
+                        log.debug("Private key file %s not found, skipping. Error: %s", key.value, e)
+                        continue
+                    except Exception as e:
+                        log.debug("Unexpected error reading file %s: %s", key.value, e)
+                        continue
                 elif key.key_type == KeyType.RAW:
                     private_key = key.value
                 else:
